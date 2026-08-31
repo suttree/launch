@@ -54,7 +54,14 @@ final class Store: ObservableObject {
             .appendingPathComponent("GOTO", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         fileURL = support.appendingPathComponent("sections.json")
-        if let data = UserDefaults.standard.data(forKey: "GOTO.mainApplications"), let apps = try? JSONDecoder().decode([Bookmark].self, from: data) { mainApplications = apps } else { mainApplications = [] }
+        if let data = UserDefaults.standard.data(forKey: "GOTO.mainApplications"), let apps = try? JSONDecoder().decode([Bookmark].self, from: data), !apps.isEmpty {
+            mainApplications = apps
+        } else {
+            mainApplications = ["Firefox", "ChatGPT", "Host"].compactMap { name in
+                let path = "/Applications/\(name).app"
+                return FileManager.default.fileExists(atPath: path) ? Bookmark(title: name, url: path, isApplication: true) : nil
+            }
+        }
         if let data = try? Data(contentsOf: fileURL) {
             do { sections = try JSONDecoder().decode([Section].self, from: data) }
             catch { print("GOTO could not load saved sections: \(error)"); sections = [Section(name: "READ"), Section(name: "WATCH")] }
@@ -223,11 +230,12 @@ struct BarView: View {
                 Menu {
                     Button("Add category") { addSectionPrompt() }
                     Button("Add application") { chooseMainApplication() }
-                } label: { Text("+").font(.system(size: 17, weight: .light)).padding(.horizontal, 16) }.menuStyle(.borderlessButton).menuIndicator(.hidden).focusable(false)
+                } label: { Image(systemName: "plus").font(.system(size: 18, weight: .light)).offset(x: -4).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center) }.menuStyle(.borderlessButton).menuIndicator(.hidden).focusable(false).frame(width: 48, height: 40)
             }
             .fixedSize(horizontal: true, vertical: false)
             .frame(height: 40)
             .background(.regularMaterial)
+            .padding(.trailing, 16)
             .frame(maxWidth: .infinity, alignment: .center)
             if addingSection {
                 HStack(spacing: 8) {
@@ -277,12 +285,13 @@ struct SectionButton: View {
     let isOpen: Bool
     let action: () -> Void
     let onDrop: (String) -> Void
+    @State private var isDropTarget = false
 
     var body: some View {
-        Button(action: action) { Text(section.name).font(.system(size: 12, weight: .medium, design: .monospaced)).padding(.horizontal, 14).frame(height: 40).background(isOpen ? Color.black.opacity(0.09) : .clear) }
+        Button(action: action) { Text(section.name).font(.system(size: 12, weight: .medium, design: .monospaced)).padding(.horizontal, 14).frame(height: 40).background(isDropTarget ? Color.accentColor.opacity(0.25) : (isOpen ? Color.black.opacity(0.09) : .clear)) }
             .buttonStyle(.plain)
             .focusable(false)
-            .onDrop(of: [.text, .url], isTargeted: nil) { providers in
+            .onDrop(of: [.text, .url], isTargeted: $isDropTarget) { providers in
                 guard let provider = providers.first else { return false }
                 _ = provider.loadObject(ofClass: NSString.self) { value, _ in
                     if let value, let string = value as? String {
@@ -318,6 +327,10 @@ struct SectionPopover: View {
         activeSection.bookmarks.sorted { $0.isFavorite && !$1.isFavorite || ($0.isFavorite == $1.isFavorite && $0.addedAt > $1.addedAt) }
     }
 
+    private var bookmarkViewportHeight: CGFloat {
+        min(max(CGFloat(sortedBookmarks.count) * 58, 0), 220)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -351,7 +364,7 @@ struct SectionPopover: View {
                                     TextField("Title", text: $editedBookmarkTitle).textFieldStyle(.roundedBorder).frame(width: 200).onSubmit { commitBookmarkEdit(bookmark) }
                                 }
                             } else {
-                                MarqueeText(text: bookmark.isApplication ? bookmark.title : "\(bookmark.title), \(URL(string: bookmark.url)?.host ?? bookmark.url)")
+                                Text(bookmark.isApplication ? bookmark.title : "\(bookmark.title), \(URL(string: bookmark.url)?.host ?? bookmark.url)").lineLimit(1).help(bookmark.isApplication ? bookmark.url : bookmark.url)
                             }
                         }.padding(.leading, 14).padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading)
                     }.buttonStyle(.plain)
@@ -362,8 +375,8 @@ struct SectionPopover: View {
                             Button { editedBookmarkTitle = bookmark.title; editedBookmarkURL = bookmark.url; editingBookmark = bookmark.id } label: { Image(systemName: "pencil").foregroundStyle(.secondary) }.buttonStyle(.plain)
                         }
                         Button { store.toggleFavorite(bookmark, in: section) } label: { Image(systemName: bookmark.isFavorite ? "star.fill" : "star").foregroundStyle(bookmark.isFavorite ? .yellow : .secondary) }.buttonStyle(.plain)
+                        Button { store.removeBookmark(bookmark, from: section) } label: { Image(systemName: "minus.circle").foregroundStyle(.secondary) }.buttonStyle(.plain)
                     }
-                    Button { store.removeBookmark(bookmark, from: section) } label: { Image(systemName: "minus.circle").foregroundStyle(.secondary) }.buttonStyle(.plain).padding(.trailing, 14)
                     }
                     .background(hoveredBookmark == bookmark.id ? Color.primary.opacity(0.08) : .clear)
                     .onHover { hoveredBookmark = $0 ? bookmark.id : nil }
@@ -378,11 +391,11 @@ struct SectionPopover: View {
                     .contextMenu { Button("Remove", role: .destructive) { store.removeBookmark(bookmark, from: section) } }
                     }
                 }
-            }.frame(height: 220)
+            }.frame(height: bookmarkViewportHeight)
         }
         .frame(width: 270)
         .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(Rectangle())
         .shadow(radius: 0)
         .onDrop(of: [.text, .url], isTargeted: nil) { providers in
             guard let provider = providers.first else { return false }
