@@ -180,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hosting: NSHostingView<BarView>!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "png"), let icon = NSImage(contentsOf: iconURL) { NSApp.applicationIconImage = icon }
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame
         let store = Store()
@@ -212,7 +213,7 @@ struct BarView: View {
             Color.clear
             HStack(spacing: 0) {
                 ForEach(store.mainApplications) { app in
-                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().frame(width: 19, height: 19).padding(.horizontal, 10) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
+                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
                 }
                 ForEach(Array(store.sections.enumerated()), id: \.element.id) { index, section in
                     SectionButton(section: section, store: store, isOpen: openSection == section.id) {
@@ -445,7 +446,7 @@ struct ItemIcon: View {
     var body: some View {
         Group {
             if bookmark.isApplication {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: bookmark.url)).resizable()
+                Image(nsImage: NSWorkspace.shared.icon(forFile: bookmark.url)).resizable().aspectRatio(contentMode: .fit)
             } else if let host = URL(string: bookmark.url)?.host {
                 AsyncImage(url: URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=32")) { image in
                     image.resizable()
