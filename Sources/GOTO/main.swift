@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 
+private let gotoSurface = Color(red: 0.93, green: 0.72, blue: 0.30).opacity(0.95)
+
 struct Section: Codable, Identifiable, Equatable {
     let id: UUID
     var name: String
@@ -108,7 +110,24 @@ final class Store: ObservableObject {
         guard let index = sections.firstIndex(where: { $0.id == section.id }) else { return }
         let bookmark = Bookmark(title: title, url: parsed.absoluteString)
         sections[index].bookmarks.insert(bookmark, at: 0)
-        fetchTitle(for: bookmark.id, url: parsed, in: section.id)
+        if let host = parsed.host, host.contains("youtube.com") || host == "youtu.be" {
+            fetchYouTubeTitle(for: bookmark.id, url: parsed, in: section.id)
+        } else {
+            fetchTitle(for: bookmark.id, url: parsed, in: section.id)
+        }
+    }
+
+    private func fetchYouTubeTitle(for bookmarkID: UUID, url: URL, in sectionID: UUID) {
+        var components = URLComponents(string: "https://www.youtube.com/oembed")
+        components?.queryItems = [URLQueryItem(name: "url", value: url.absoluteString), URLQueryItem(name: "format", value: "json")]
+        guard let endpoint = components?.url else { return }
+        URLSession.shared.dataTask(with: endpoint) { [weak self] data, _, _ in
+            guard let data, let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let title = payload["title"] as? String else { return }
+            Task { @MainActor in
+                guard let self, let sectionIndex = self.sections.firstIndex(where: { $0.id == sectionID }), let itemIndex = self.sections[sectionIndex].bookmarks.firstIndex(where: { $0.id == bookmarkID }) else { return }
+                self.sections[sectionIndex].bookmarks[itemIndex].title = title
+            }
+        }.resume()
     }
 
     private func fetchTitle(for bookmarkID: UUID, url: URL, in sectionID: UUID) {
@@ -180,13 +199,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hosting: NSHostingView<BarView>!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "png"), let icon = NSImage(contentsOf: iconURL) { NSApp.applicationIconImage = icon }
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let iconName = isDark ? "AppIcon-dark" : "AppIcon"
+        if let iconURL = Bundle.main.url(forResource: iconName, withExtension: "png"), let icon = NSImage(contentsOf: iconURL) { NSApp.applicationIconImage = icon }
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame
         let store = Store()
         let contentWidth = 98 + store.sections.reduce(CGFloat.zero) { $0 + max(76, CGFloat($1.name.count * 8 + 28)) }
         let width = min(max(contentWidth + 270, 300), visibleFrame.width - 40)
-        let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.maxY - 360, width: width, height: 360)
+        let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.maxY - 361, width: width, height: 361)
         panel = Panel(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         panel.level = .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -235,8 +256,8 @@ struct BarView: View {
             }
             .fixedSize(horizontal: true, vertical: false)
             .frame(height: 40)
-            .background(.regularMaterial)
             .padding(.trailing, 16)
+            .background(.regularMaterial)
             .frame(maxWidth: .infinity, alignment: .center)
             if addingSection {
                 HStack(spacing: 8) {
@@ -246,7 +267,13 @@ struct BarView: View {
                     Button("Cancel") { addingSection = false; newName = "" }.buttonStyle(.plain)
                 }.padding(10).background(.regularMaterial).cornerRadius(7).offset(x: 65, y: 42)
             }
-        }.frame(height: 360, alignment: .top).onDrop(of: [.text, .url], isTargeted: nil) { _ in false }
+        }
+        .frame(height: 360, alignment: .top)
+        .onDrop(of: [.text, .url], isTargeted: nil) { _ in false }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            openSection = nil
+            savedSection = nil
+        }
     }
 
     private func panelMakeKey() {
@@ -278,6 +305,18 @@ struct BarView: View {
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in if response == .OK, let url = panel.url { store.addMainApplication(at: url) } }
     }
+}
+
+struct MenuBarBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .menu
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 struct SectionButton: View {
@@ -316,6 +355,7 @@ struct SectionPopover: View {
     @State private var editingBookmark: UUID?
     @State private var editedBookmarkTitle = ""
     @State private var editedBookmarkURL = ""
+    @FocusState private var bookmarkTitleFocused: Bool
     @State private var editingTitle = false
     @State private var editedTitle = ""
     @FocusState private var titleFocused: Bool
@@ -329,7 +369,7 @@ struct SectionPopover: View {
     }
 
     private var bookmarkViewportHeight: CGFloat {
-        min(max(CGFloat(sortedBookmarks.count) * 58, 0), 220)
+        min(max(CGFloat(sortedBookmarks.count) * 40, 0), 180)
     }
 
     var body: some View {
@@ -342,7 +382,7 @@ struct SectionPopover: View {
                 }
                 Spacer()
                 Button { store.remove(section); dismiss() } label: { Image(systemName: "trash").foregroundStyle(.secondary) }.buttonStyle(.plain).padding(.trailing, 14)
-                Button { editedTitle = section.name; editingTitle = true; titleFocused = true } label: { Image(systemName: "pencil").foregroundStyle(.secondary) }.buttonStyle(.plain)
+                Button { editedTitle = section.name; editingTitle = true; titleFocused = true } label: { Image(systemName: "pencil").foregroundStyle(.secondary) }.buttonStyle(.plain).padding(.trailing, 14)
             }.padding(14)
             Divider()
             if activeSection.bookmarks.isEmpty { Text("Drop a link here").foregroundStyle(.secondary).padding(24) }
@@ -362,10 +402,10 @@ struct SectionPopover: View {
                             ItemIcon(bookmark: bookmark)
                             if editingBookmark == bookmark.id {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    TextField("Title", text: $editedBookmarkTitle).textFieldStyle(.roundedBorder).frame(width: 200).onSubmit { commitBookmarkEdit(bookmark) }
+                                    TextField("Title", text: $editedBookmarkTitle).textFieldStyle(.roundedBorder).frame(width: 140).focused($bookmarkTitleFocused).onSubmit { commitBookmarkEdit(bookmark) }
                                 }
                             } else {
-                                Text(bookmark.isApplication ? bookmark.title : "\(bookmark.title), \(URL(string: bookmark.url)?.host ?? bookmark.url)").lineLimit(1).help(bookmark.isApplication ? bookmark.url : bookmark.url)
+                                Text(bookmark.isApplication ? bookmark.title : "\(bookmark.title), \(URL(string: bookmark.url)?.host ?? bookmark.url)").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading).help(bookmark.url)
                             }
                         }.padding(.leading, 14).padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading)
                     }.buttonStyle(.plain)
@@ -373,12 +413,13 @@ struct SectionPopover: View {
                         if editingBookmark == bookmark.id {
                             EmptyView()
                         } else {
-                            Button { editedBookmarkTitle = bookmark.title; editedBookmarkURL = bookmark.url; editingBookmark = bookmark.id } label: { Image(systemName: "pencil").foregroundStyle(.secondary) }.buttonStyle(.plain)
+                            Button { editedBookmarkTitle = bookmark.title; editedBookmarkURL = bookmark.url; editingBookmark = bookmark.id; DispatchQueue.main.async { bookmarkTitleFocused = true } } label: { Image(systemName: "pencil").foregroundStyle(.secondary) }.buttonStyle(.plain)
                         }
                         Button { store.toggleFavorite(bookmark, in: section) } label: { Image(systemName: bookmark.isFavorite ? "star.fill" : "star").foregroundStyle(bookmark.isFavorite ? .yellow : .secondary) }.buttonStyle(.plain)
-                        Button { store.removeBookmark(bookmark, from: section) } label: { Image(systemName: "minus.circle").foregroundStyle(.secondary) }.buttonStyle(.plain)
+                        Button { store.removeBookmark(bookmark, from: section) } label: { Image(systemName: "trash").foregroundStyle(.secondary) }.buttonStyle(.plain)
                     }
                     }
+                    .padding(.trailing, 28)
                     .background(hoveredBookmark == bookmark.id ? Color.primary.opacity(0.08) : .clear)
                     .onHover { hoveredBookmark = $0 ? bookmark.id : nil }
                     .onDrag { NSItemProvider(object: bookmark.id.uuidString as NSString) }
