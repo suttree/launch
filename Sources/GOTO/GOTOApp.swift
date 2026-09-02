@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 private let gotoSurface = Color(red: 0.93, green: 0.72, blue: 0.30).opacity(0.95)
@@ -194,9 +195,16 @@ struct GOTOApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: Panel!
     private var hosting: NSHostingView<BarView>!
+    private let store = Store()
+    private let keyboardNavigation = KeyboardNavigation()
+    private var previousApplication: NSRunningApplication?
+    private var hotKey: EventHotKeyRef?
+    private var hotKeyHandler: EventHandlerRef?
+    private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -204,7 +212,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let iconURL = Bundle.main.url(forResource: iconName, withExtension: "png"), let icon = NSImage(contentsOf: iconURL) { NSApp.applicationIconImage = icon }
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame
-        let store = Store()
         let contentWidth = 98 + store.sections.reduce(CGFloat.zero) { $0 + max(76, CGFloat($1.name.count * 8 + 28)) }
         let width = min(max(contentWidth + 270, 300), visibleFrame.width - 40)
         let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.maxY - 361, width: width, height: 361)
@@ -216,15 +223,130 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
         panel.hasShadow = false
-        hosting = NSHostingView(rootView: BarView(store: store))
+        hosting = NSHostingView(rootView: BarView(store: store, keyboardNavigation: keyboardNavigation))
         panel.contentView = hosting
         panel.orderFrontRegardless()
+        registerHotKey()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleKeyDown(event) == true ? nil : event
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        if let hotKey { UnregisterEventHotKey(hotKey) }
+        if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
+    }
+
+    private func registerHotKey() {
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let handler: EventHandlerUPP = { _, _, userData in
+            guard let userData else { return noErr }
+            let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+            Task { @MainActor in appDelegate.showForKeyboardNavigation() }
+            return noErr
+        }
+        InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: 1)
+        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
+    }
+
+    private func showForKeyboardNavigation() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            previousApplication = frontmost
+        }
+        keyboardNavigation.begin(itemCount: dockItems.count)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    private var dockItems: [KeyboardNavigation.DockItem] {
+        store.mainApplications.map { .application($0.id) } + store.sections.map { .section($0.id) }
+    }
+
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        guard NSApp.isActive, keyboardNavigation.selectedDockIndex != nil else { return false }
+
+        switch Int(event.keyCode) {
+        case kVK_LeftArrow:
+            guard keyboardNavigation.openSectionID == nil else { return false }
+            keyboardNavigation.moveDock(by: -1, itemCount: dockItems.count)
+        case kVK_RightArrow:
+            guard keyboardNavigation.openSectionID == nil else { return false }
+            keyboardNavigation.moveDock(by: 1, itemCount: dockItems.count)
+        case kVK_UpArrow:
+            guard let section = openSection else { return false }
+            keyboardNavigation.moveSubmenu(by: -1, itemCount: sortedBookmarks(in: section).count)
+        case kVK_DownArrow:
+            guard let section = openSection else { return false }
+            keyboardNavigation.moveSubmenu(by: 1, itemCount: sortedBookmarks(in: section).count)
+        case kVK_Space:
+            guard keyboardNavigation.openSectionID == nil,
+                  let selectedItem,
+                  case let .section(sectionID) = selectedItem,
+                  let section = store.sections.first(where: { $0.id == sectionID }) else { return false }
+            keyboardNavigation.openSubmenu(sectionID: sectionID, itemCount: sortedBookmarks(in: section).count)
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            launchSelection()
+        case kVK_Escape:
+            dismissToPreviousApplication()
+        default:
+            return false
+        }
+        return true
+    }
+
+    private var selectedItem: KeyboardNavigation.DockItem? {
+        guard let index = keyboardNavigation.selectedDockIndex, dockItems.indices.contains(index) else { return nil }
+        return dockItems[index]
+    }
+
+    private var openSection: Section? {
+        guard let sectionID = keyboardNavigation.openSectionID else { return nil }
+        return store.sections.first(where: { $0.id == sectionID })
+    }
+
+    private func sortedBookmarks(in section: Section) -> [Bookmark] {
+        section.bookmarks.sorted { $0.isFavorite && !$1.isFavorite || ($0.isFavorite == $1.isFavorite && $0.addedAt > $1.addedAt) }
+    }
+
+    private func launchSelection() {
+        if let section = openSection,
+           let index = keyboardNavigation.selectedSubmenuIndex,
+           sortedBookmarks(in: section).indices.contains(index) {
+            open(sortedBookmarks(in: section)[index])
+            return
+        }
+
+        guard let selectedItem else { return }
+        switch selectedItem {
+        case let .application(id):
+            if let app = store.mainApplications.first(where: { $0.id == id }) { open(app) }
+        case let .section(id):
+            if let section = store.sections.first(where: { $0.id == id }) {
+                keyboardNavigation.openSubmenu(sectionID: id, itemCount: sortedBookmarks(in: section).count)
+            }
+        }
+    }
+
+    private func open(_ bookmark: Bookmark) {
+        if bookmark.isApplication { NSWorkspace.shared.open(URL(fileURLWithPath: bookmark.url)) }
+        else if let url = URL(string: bookmark.url) { NSWorkspace.shared.open(url) }
+    }
+
+    private func dismissToPreviousApplication() {
+        keyboardNavigation.clear()
+        panel.orderOut(nil)
+        if previousApplication?.activate(options: [.activateIgnoringOtherApps]) != true {
+            NSApp.deactivate()
+        }
     }
 }
 
 struct BarView: View {
     @ObservedObject var store: Store
-    @State private var openSection: UUID?
+    @ObservedObject var keyboardNavigation: KeyboardNavigation
     @State private var addingSection = false
     @State private var newName = ""
     @State private var savedSection: UUID?
@@ -233,18 +355,18 @@ struct BarView: View {
         ZStack(alignment: .topLeading) {
             Color.clear
             HStack(spacing: 0) {
-                ForEach(store.mainApplications) { app in
-                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
+                ForEach(Array(store.mainApplications.enumerated()), id: \.element.id) { index, app in
+                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10).frame(height: 40).background(keyboardNavigation.selectedDockIndex == index ? Color.accentColor.opacity(0.22) : .clear) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
                 }
                 ForEach(Array(store.sections.enumerated()), id: \.element.id) { index, section in
-                    SectionButton(section: section, store: store, isOpen: openSection == section.id) {
-                        openSection = openSection == section.id ? nil : section.id
+                    SectionButton(section: section, store: store, isOpen: keyboardNavigation.openSectionID == section.id, isSelected: keyboardNavigation.selectedDockIndex == store.mainApplications.count + index) {
+                        keyboardNavigation.toggleSubmenu(sectionID: section.id, itemCount: sortedBookmarks(in: section).count)
                     } onDrop: { url in store.addBookmark(url: url, to: section); savedSection = section.id; DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { savedSection = nil } }
                     .scaleEffect(savedSection == section.id ? 1.08 : 1).animation(.easeOut(duration: 0.25), value: savedSection)
-                    .contextMenu { Button("Remove section", role: .destructive) { store.remove(section); openSection = nil } }
+                    .contextMenu { Button("Remove section", role: .destructive) { store.remove(section); keyboardNavigation.clear() } }
                     .overlay(alignment: .topLeading) {
-                        if openSection == section.id {
-                            SectionPopover(section: section, store: store) { openSection = nil }
+                        if keyboardNavigation.openSectionID == section.id {
+                            SectionPopover(section: section, store: store, selectedIndex: keyboardNavigation.selectedSubmenuIndex) { keyboardNavigation.clear() }
                                 .offset(y: 40)
                         }
                     }
@@ -271,9 +393,13 @@ struct BarView: View {
         .frame(height: 360, alignment: .top)
         .onDrop(of: [.text, .url], isTargeted: nil) { _ in false }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            openSection = nil
+            keyboardNavigation.clear()
             savedSection = nil
         }
+    }
+
+    private func sortedBookmarks(in section: Section) -> [Bookmark] {
+        section.bookmarks.sorted { $0.isFavorite && !$1.isFavorite || ($0.isFavorite == $1.isFavorite && $0.addedAt > $1.addedAt) }
     }
 
     private func panelMakeKey() {
@@ -323,12 +449,13 @@ struct SectionButton: View {
     let section: Section
     @ObservedObject var store: Store
     let isOpen: Bool
+    let isSelected: Bool
     let action: () -> Void
     let onDrop: (String) -> Void
     @State private var isDropTarget = false
 
     var body: some View {
-        Button(action: action) { Text(section.name).font(.system(size: 12, weight: .medium, design: .monospaced)).padding(.horizontal, 14).frame(height: 40).background(isDropTarget ? Color.accentColor.opacity(0.25) : (isOpen ? Color.black.opacity(0.09) : .clear)) }
+        Button(action: action) { Text(section.name).font(.system(size: 12, weight: .medium, design: .monospaced)).padding(.horizontal, 14).frame(height: 40).background(isDropTarget ? Color.accentColor.opacity(0.25) : (isSelected ? Color.accentColor.opacity(0.22) : (isOpen ? Color.black.opacity(0.09) : .clear))) }
             .buttonStyle(.plain)
             .focusable(false)
             .onDrop(of: [.text, .url], isTargeted: $isDropTarget) { providers in
@@ -350,6 +477,7 @@ struct SectionButton: View {
 struct SectionPopover: View {
     let section: Section
     @ObservedObject var store: Store
+    let selectedIndex: Int?
     let dismiss: () -> Void
     @State private var hoveredBookmark: UUID?
     @State private var editingBookmark: UUID?
@@ -420,7 +548,7 @@ struct SectionPopover: View {
                     }
                     }
                     .padding(.trailing, 28)
-                    .background(hoveredBookmark == bookmark.id ? Color.primary.opacity(0.08) : .clear)
+                    .background(selectedIndex == index || hoveredBookmark == bookmark.id ? Color.accentColor.opacity(0.16) : .clear)
                     .onHover { hoveredBookmark = $0 ? bookmark.id : nil }
                     .onDrag { NSItemProvider(object: bookmark.id.uuidString as NSString) }
                     .onDrop(of: [.text], isTargeted: nil) { providers in
