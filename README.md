@@ -15,6 +15,7 @@ It lives beneath the macOS menu bar. The main bar contains app shortcuts and use
 - Reorder items within a dropdown.
 - Remove bookmarks and app shortcuts without deleting installed applications.
 - Persist categories, bookmarks, and app shortcuts locally.
+- Press Option-Space to focus GOTO, then use the arrow keys, Space, Enter, and Escape to navigate without a mouse.
 
 GOTO stores category data in `~/Library/Application Support/GOTO/sections.json` and main-bar app shortcuts in UserDefaults.
 
