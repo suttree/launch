@@ -220,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hidesOnDeactivate = false
+        panel.hidesOnDeactivate = true
         panel.becomesKeyOnlyIfNeeded = false
         panel.hasShadow = false
         hosting = NSHostingView(rootView: BarView(store: store, keyboardNavigation: keyboardNavigation))
