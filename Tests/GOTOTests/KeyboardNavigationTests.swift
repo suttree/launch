@@ -42,14 +42,14 @@ final class KeyboardNavigationTests: XCTestCase {
         XCTAssertNil(navigation.selectedSubmenuIndex)
     }
 
-    func testSubmenuNavigationWrapsAtBottom() {
+    func testSubmenuNavigationStopsAtBottom() {
         let navigation = KeyboardNavigation()
         navigation.openSubmenu(sectionID: UUID(), itemCount: 2)
 
         navigation.moveSubmenu(by: 1, itemCount: 2)
         navigation.moveSubmenu(by: 1, itemCount: 2)
 
-        XCTAssertEqual(navigation.selectedSubmenuIndex, 0)
+        XCTAssertEqual(navigation.selectedSubmenuIndex, 1)
     }
 
     func testClearClosesSubmenuAndRemovesSelections() {

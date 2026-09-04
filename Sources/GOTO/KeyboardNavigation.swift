@@ -55,6 +55,10 @@ final class KeyboardNavigation: ObservableObject {
             selectedSubmenuIndex = nil
             return
         }
+        if offset > 0 && current >= itemCount - 1 {
+            selectedSubmenuIndex = itemCount - 1
+            return
+        }
         selectedSubmenuIndex = (current + offset + itemCount) % itemCount
     }
 
