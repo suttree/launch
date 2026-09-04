@@ -518,9 +518,10 @@ struct SectionPopover: View {
                 Label("Add application", systemImage: "plus").padding(.horizontal, 14).padding(.vertical, 9)
             }.buttonStyle(.plain)
             Divider()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(sortedBookmarks.enumerated()), id: \.element.id) { index, bookmark in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(sortedBookmarks.enumerated()), id: \.element.id) { index, bookmark in
                 if index > 0 && !bookmark.isFavorite && sortedBookmarks[index - 1].isFavorite {
                     Divider()
                 }
@@ -559,9 +560,17 @@ struct SectionPopover: View {
                         return true
                     }
                     .contextMenu { Button("Remove", role: .destructive) { store.removeBookmark(bookmark, from: section) } }
+                        }
                     }
                 }
-            }.frame(height: bookmarkViewportHeight)
+                .frame(height: bookmarkViewportHeight)
+                .onChange(of: selectedIndex) { newIndex in
+                    guard let newIndex, sortedBookmarks.indices.contains(newIndex) else { return }
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        proxy.scrollTo(sortedBookmarks[newIndex].id, anchor: .center)
+                    }
+                }
+            }
         }
         .frame(width: 270)
         .background(.regularMaterial)
