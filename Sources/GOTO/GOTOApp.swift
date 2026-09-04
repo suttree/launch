@@ -572,7 +572,7 @@ struct SectionPopover: View {
                 }
             }
         }
-        .frame(width: 270)
+        .frame(width: 230)
         .background(.regularMaterial)
         .clipShape(Rectangle())
         .shadow(radius: 0)
