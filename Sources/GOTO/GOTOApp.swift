@@ -497,6 +497,7 @@ struct SectionPopover: View {
     @State private var editingTitle = false
     @State private var editedTitle = ""
     @FocusState private var titleFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     private var activeSection: Section {
         store.sections.first(where: { $0.id == section.id }) ?? section
@@ -559,7 +560,7 @@ struct SectionPopover: View {
                     }
                     }
                     .padding(.trailing, 28)
-                    .background(selectedIndex == index || hoveredBookmark == bookmark.id ? Color.accentColor.opacity(0.16) : .clear)
+                    .background(selectedIndex == index || hoveredBookmark == bookmark.id ? selectionHighlight : .clear)
                     .onHover { hoveredBookmark = $0 ? bookmark.id : nil }
                     .onDrag { NSItemProvider(object: bookmark.id.uuidString as NSString) }
                     .onDrop(of: [.text], isTargeted: nil) { providers in
@@ -606,6 +607,10 @@ struct SectionPopover: View {
         panel.begin { response in
             if response == .OK, let url = panel.url { self.store.addApplication(at: url, to: section) }
         }
+    }
+
+    private var selectionHighlight: Color {
+        colorScheme == .dark ? Color.white.opacity(0.30) : Color.accentColor.opacity(0.16)
     }
 
     private func open(_ bookmark: Bookmark) {
