@@ -347,6 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct BarView: View {
     @ObservedObject var store: Store
     @ObservedObject var keyboardNavigation: KeyboardNavigation
+    @Environment(\.colorScheme) private var colorScheme
     @State private var addingSection = false
     @State private var newName = ""
     @State private var savedSection: UUID?
@@ -356,7 +357,7 @@ struct BarView: View {
             Color.clear
             HStack(spacing: 0) {
                 ForEach(Array(store.mainApplications.enumerated()), id: \.element.id) { index, app in
-                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10).frame(height: 40).background(keyboardNavigation.selectedDockIndex == index ? Color.accentColor.opacity(0.22) : .clear) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
+                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10).frame(height: 40).background(keyboardNavigation.selectedDockIndex == index ? selectionHighlight : .clear) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
                 }
                 ForEach(Array(store.sections.enumerated()), id: \.element.id) { index, section in
                     SectionButton(section: section, store: store, isOpen: keyboardNavigation.openSectionID == section.id, isSelected: keyboardNavigation.selectedDockIndex == store.mainApplications.count + index) {
@@ -400,6 +401,10 @@ struct BarView: View {
 
     private func sortedBookmarks(in section: Section) -> [Bookmark] {
         section.bookmarks.sorted { $0.isFavorite && !$1.isFavorite || ($0.isFavorite == $1.isFavorite && $0.addedAt > $1.addedAt) }
+    }
+
+    private var selectionHighlight: Color {
+        colorScheme == .dark ? Color.white.opacity(0.24) : Color.accentColor.opacity(0.22)
     }
 
     private func panelMakeKey() {
@@ -453,9 +458,10 @@ struct SectionButton: View {
     let action: () -> Void
     let onDrop: (String) -> Void
     @State private var isDropTarget = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Button(action: action) { Text(section.name).font(.system(size: 12, weight: .medium, design: .monospaced)).padding(.horizontal, 14).frame(height: 40).background(isDropTarget ? Color.accentColor.opacity(0.25) : (isSelected ? Color.accentColor.opacity(0.22) : (isOpen ? Color.black.opacity(0.09) : .clear))) }
+        Button(action: action) { Text(section.name).font(.system(size: 12, weight: .medium, design: .monospaced)).padding(.horizontal, 14).frame(height: 40).background(isDropTarget ? Color.accentColor.opacity(0.25) : (isSelected ? selectionHighlight : (isOpen ? Color.black.opacity(0.09) : .clear))) }
             .buttonStyle(.plain)
             .focusable(false)
             .onDrop(of: [.text, .url], isTargeted: $isDropTarget) { providers in
@@ -470,6 +476,10 @@ struct SectionButton: View {
                 }
                 return true
             }
+    }
+
+    private var selectionHighlight: Color {
+        colorScheme == .dark ? Color.white.opacity(0.24) : Color.accentColor.opacity(0.22)
     }
 }
 
