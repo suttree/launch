@@ -93,11 +93,17 @@ final class Store: ObservableObject {
               application.activationPolicy == .regular,
               let path = application.bundleURL?.path,
               let title = application.localizedName else { return }
-        let pinnedPaths = Set(mainApplications.map(\.url))
-        guard !pinnedPaths.contains(path) else { return }
-        recentApplications.removeAll { $0.url == path }
+        let canonicalPath = canonicalApplicationPath(path)
+        let pinnedPaths = Set(mainApplications.map { canonicalApplicationPath($0.url) })
+        guard !pinnedPaths.contains(canonicalPath) else { return }
+        recentApplications.removeAll { canonicalApplicationPath($0.url) == canonicalPath }
         recentApplications.insert(Bookmark(title: title, url: path, isApplication: true), at: 0)
-        recentApplications = Array(recentApplications.prefix(5))
+        var seen = Set<String>()
+        recentApplications = Array(recentApplications.filter { seen.insert(canonicalApplicationPath($0.url)).inserted }.prefix(5))
+    }
+
+    private func canonicalApplicationPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     func addSection(_ name: String) {
