@@ -423,7 +423,7 @@ struct BarView: View {
                     }
                 }
                 Text("🧅")
-                    .font(.system(size: 20))
+                    .font(.system(size: 15))
                     .frame(width: 40, height: 40)
                     .background(isPhotoDropTargeted ? selectionHighlight : .clear)
                     .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: $isPhotoDropTargeted) { providers in
