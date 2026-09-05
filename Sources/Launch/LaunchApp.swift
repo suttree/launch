@@ -1,6 +1,5 @@
 import AppKit
 import Carbon.HIToolbox
-import Photos
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -187,53 +186,6 @@ final class Panel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-enum PhotosDropHandler {
-    static func saveImage(from providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-            guard let data else { return }
-            save(data)
-        }
-        return true
-    }
-
-    private static func save(_ data: Data) {
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else { return }
-            PHPhotoLibrary.shared().performChanges({
-                let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .photo, data: data, options: nil)
-            }) { success, _ in
-                guard success else { return }
-                addNewestAssetToAlbum()
-            }
-        }
-    }
-
-    private static func addNewestAssetToAlbum() {
-        let assets = PHAsset.fetchAssets(with: .image, options: {
-            let options = PHFetchOptions()
-            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-            options.fetchLimit = 1
-            return options
-        }())
-        guard let asset = assets.firstObject else { return }
-        let albums = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil)
-        var target: PHAssetCollection?
-        albums.enumerateObjects { album, _, stop in
-            if album.localizedTitle == "State of the Onion" {
-                target = album
-                stop.pointee = true
-            }
-        }
-        PHPhotoLibrary.shared().performChanges({
-            let changeRequest = target.map { PHAssetCollectionChangeRequest(for: $0) }
-                ?? PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: "State of the Onion")
-            changeRequest?.addAssets([asset] as NSArray)
-        }, completionHandler: nil)
-    }
-}
-
 @main
 struct LaunchApp: App {
     @StateObject private var store = Store()
@@ -400,7 +352,6 @@ struct BarView: View {
     @State private var addingSection = false
     @State private var newName = ""
     @State private var savedSection: UUID?
-    @State private var isPhotoDropTargeted = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -422,13 +373,6 @@ struct BarView: View {
                         }
                     }
                 }
-                Text("🌍")
-                    .font(.system(size: 13))
-                    .frame(width: 40, height: 40)
-                    .background(isPhotoDropTargeted ? selectionHighlight : .clear)
-                    .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: $isPhotoDropTargeted) { providers in
-                        PhotosDropHandler.saveImage(from: providers)
-                    }
                 Menu {
                     Button("Add category") { addSectionPrompt() }
                     Button("Add application") { chooseMainApplication() }
@@ -439,15 +383,6 @@ struct BarView: View {
             .padding(.trailing, 16)
             .background(.regularMaterial)
             .frame(maxWidth: .infinity, alignment: .center)
-            if isPhotoDropTargeted {
-                Text("Drop image to State of the Onion")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.regularMaterial)
-                    .clipShape(Capsule())
-                    .allowsHitTesting(false)
-            }
             if addingSection {
                 HStack(spacing: 8) {
                     TextField("Section name", text: $newName) { committed in
@@ -458,9 +393,6 @@ struct BarView: View {
             }
         }
         .frame(height: 360, alignment: .top)
-        .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: $isPhotoDropTargeted) { providers in
-            PhotosDropHandler.saveImage(from: providers)
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             keyboardNavigation.clear()
             savedSection = nil
