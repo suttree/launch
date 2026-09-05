@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "GOTO",
+    name: "Launch",
     platforms: [.macOS(.v13)],
-    products: [.executable(name: "GOTO", targets: ["GOTO"])],
+    products: [.executable(name: "Launch", targets: ["Launch"])],
     targets: [
-        .executableTarget(name: "GOTO"),
-        .testTarget(name: "GOTOTests", dependencies: ["GOTO"])
+        .executableTarget(name: "Launch"),
+        .testTarget(name: "LaunchTests", dependencies: ["Launch"])
     ]
 )

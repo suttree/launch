@@ -1,5 +1,5 @@
 import XCTest
-@testable import GOTO
+@testable import Launch
 
 @MainActor
 final class KeyboardNavigationTests: XCTestCase {

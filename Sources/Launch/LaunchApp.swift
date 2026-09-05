@@ -69,7 +69,7 @@ final class Store: ObservableObject {
         }
         if let data = try? Data(contentsOf: fileURL) {
             do { sections = try JSONDecoder().decode([Section].self, from: data) }
-            catch { print("GOTO could not load saved sections: \(error)"); sections = [Section(name: "READ"), Section(name: "WATCH")] }
+            catch { print("Launch could not load saved sections: \(error)"); sections = [Section(name: "READ"), Section(name: "WATCH")] }
         } else {
             sections = [Section(name: "READ"), Section(name: "WATCH")]
         }
@@ -235,7 +235,7 @@ enum PhotosDropHandler {
 }
 
 @main
-struct GOTOApp: App {
+struct LaunchApp: App {
     @StateObject private var store = Store()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 

@@ -1,6 +1,6 @@
-# GOTO
+# Launch
 
-GOTO is a small macOS launcher and bookmark bar for the places you want to go and the things you want to return to.
+Launch is a small macOS launcher and bookmark bar for the places you want to go and the things you want to return to.
 
 It lives beneath the macOS menu bar. The main bar contains app shortcuts and user-created categories such as READ, WATCH, or COOK. Each category opens a dropdown containing application shortcuts and saved links.
 
@@ -15,9 +15,9 @@ It lives beneath the macOS menu bar. The main bar contains app shortcuts and use
 - Reorder items within a dropdown.
 - Remove bookmarks and app shortcuts without deleting installed applications.
 - Persist categories, bookmarks, and app shortcuts locally.
-- Press Option-Space to focus GOTO, then use the arrow keys, Space, Enter, and Escape to navigate without a mouse.
+- Press Option-Space to focus Launch, then use the arrow keys, Space, Enter, and Escape to navigate without a mouse.
 
-GOTO stores category data in `~/Library/Application Support/GOTO/sections.json` and main-bar app shortcuts in UserDefaults.
+Launch stores category data in `~/Library/Application Support/GOTO/sections.json` and main-bar app shortcuts in UserDefaults.
 
 ## Building
 
@@ -26,3 +26,7 @@ swift build
 ```
 
 The executable is built as a native SwiftUI and AppKit macOS application.
+
+The bundle identifier, storage directory, and preference keys retain the GOTO identity so existing libraries and shortcuts carry over.
+
+Build a runnable app with `Scripts/build-app.sh`, then open `.build/Launch.app`.
