@@ -2,7 +2,7 @@
 
 A time-only clock in the top-right corner of the primary display. Menu runs independently of Launch and has no Dock icon or menu-bar item.
 
-The clock uses 24-hour time, white 17-point numerals, and a small shadow for contrast. It stays above windows and follows Spaces, including full-screen apps. Right-click the time to quit.
+The clock uses 24-hour time, black 13-point numerals without a shadow. It stays above windows and follows Spaces, including full-screen apps. Right-click the time to quit.
 
 ## Build and run
 

@@ -5,17 +5,12 @@ final class ClockView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        label.font = .monospacedDigitSystemFont(ofSize: 17, weight: .medium)
-        label.textColor = .white
-        label.alignment = .center
+        label.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        label.textColor = .black
+        label.alignment = .right
         label.frame = bounds
         label.autoresizingMask = [.width, .height]
         label.isSelectable = false
-        label.wantsLayer = true
-        label.layer?.shadowColor = NSColor.black.cgColor
-        label.layer?.shadowOpacity = 0.85
-        label.layer?.shadowRadius = 2
-        label.layer?.shadowOffset = CGSize(width: 0, height: -1)
         addSubview(label)
 
         let menu = NSMenu()
