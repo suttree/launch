@@ -1,5 +1,13 @@
 import AppKit
 
+final class ClockPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // This clock deliberately occupies the menu bar area. AppKit's default
+        // constraint pushes ordinary windows below it when the bar is visible.
+        frameRect
+    }
+}
+
 final class ClockView: NSView {
     let label = NSTextField(labelWithString: "")
 
@@ -40,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 64, height: 24),
+        panel = ClockPanel(contentRect: NSRect(x: 0, y: 0, width: 64, height: 24),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.backgroundColor = .clear
         panel.isOpaque = false
