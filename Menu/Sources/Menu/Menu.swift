@@ -5,7 +5,7 @@ final class ClockView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        label.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        label.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
         label.textColor = .black
         label.alignment = .right
         label.frame = bounds
