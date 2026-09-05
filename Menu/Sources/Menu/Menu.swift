@@ -47,7 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovable = false
-        panel.level = .statusBar
+        // Let the system menu bar cover this clock when it slides into view.
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue - 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         clock = ClockView(frame: NSRect(x: 0, y: 0, width: 64, height: 24))
         panel.contentView = clock
@@ -62,8 +63,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refresh() {
         guard let screen = NSScreen.screens.first else { return }
-        // Use the full frame so hiding the macOS menu bar never moves the clock.
-        panel.setFrameTopLeftPoint(NSPoint(x: screen.frame.maxX - 76, y: screen.frame.maxY - 9))
+        // Match the menu bar row even while it is hidden, including notched displays.
+        let rowHeight = max(NSStatusBar.system.thickness, screen.safeAreaInsets.top)
+        let labelHeight = clock.label.intrinsicContentSize.height
+        let panelSize = NSSize(width: 64, height: labelHeight)
+        panel.setFrame(NSRect(
+            x: screen.frame.maxX - panelSize.width - 16,
+            y: screen.frame.maxY - (rowHeight + panelSize.height) / 2,
+            width: panelSize.width, height: panelSize.height), display: true)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_GB")
         formatter.timeZone = .current
