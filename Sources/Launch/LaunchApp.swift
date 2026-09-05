@@ -52,13 +52,16 @@ struct Bookmark: Codable, Identifiable, Equatable {
 final class Store: ObservableObject {
     @Published var sections: [Section] { didSet { save() } }
     @Published var mainApplications: [Bookmark] { didSet { saveMainApplications() } }
+    @Published private(set) var recentApplications: [Bookmark]
     let fileURL: URL
+    private var activationObserver: NSObjectProtocol?
 
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("GOTO", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         fileURL = support.appendingPathComponent("sections.json")
+        recentApplications = []
         if let data = UserDefaults.standard.data(forKey: "GOTO.mainApplications"), let apps = try? JSONDecoder().decode([Bookmark].self, from: data), !apps.isEmpty {
             mainApplications = apps
         } else {
@@ -73,6 +76,28 @@ final class Store: ObservableObject {
         } else {
             sections = [Section(name: "READ"), Section(name: "WATCH")]
         }
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            Task { @MainActor in
+                self?.recordRecentApplication(application)
+            }
+        }
+    }
+
+    deinit {
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+    }
+
+    private func recordRecentApplication(_ application: NSRunningApplication) {
+        guard application.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              application.activationPolicy == .regular,
+              let path = application.bundleURL?.path,
+              let title = application.localizedName else { return }
+        let pinnedPaths = Set(mainApplications.map(\.url))
+        guard !pinnedPaths.contains(path) else { return }
+        recentApplications.removeAll { $0.url == path }
+        recentApplications.insert(Bookmark(title: title, url: path, isApplication: true), at: 0)
+        recentApplications = Array(recentApplications.prefix(5))
     }
 
     func addSection(_ name: String) {
@@ -311,7 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var dockItems: [KeyboardNavigation.DockItem] {
-        store.mainApplications.map { .application($0.id) } + store.sections.map { .section($0.id) }
+        store.mainApplications.map { .application($0.id) } + store.recentApplications.map { .application($0.id) } + store.sections.map { .section($0.id) }
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
@@ -371,7 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let selectedItem else { return }
         switch selectedItem {
         case let .application(id):
-            if let app = store.mainApplications.first(where: { $0.id == id }) { open(app) }
+            if let app = (store.mainApplications + store.recentApplications).first(where: { $0.id == id }) { open(app) }
         case let .section(id):
             if let section = store.sections.first(where: { $0.id == id }) {
                 keyboardNavigation.openSubmenu(sectionID: id, itemCount: sortedBookmarks(in: section).count)
@@ -409,8 +434,14 @@ struct BarView: View {
                 ForEach(Array(store.mainApplications.enumerated()), id: \.element.id) { index, app in
                     Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10).frame(height: 40).background(keyboardNavigation.selectedDockIndex == index ? selectionHighlight : .clear) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
                 }
+                if !store.recentApplications.isEmpty {
+                    Rectangle().fill(.secondary.opacity(0.45)).frame(width: 1, height: 22).padding(.horizontal, 8)
+                    ForEach(Array(store.recentApplications.enumerated()), id: \.element.id) { index, app in
+                        Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10).frame(height: 40).background(keyboardNavigation.selectedDockIndex == store.mainApplications.count + index ? selectionHighlight : .clear) }.buttonStyle(.plain).focusable(false)
+                    }
+                }
                 ForEach(Array(store.sections.enumerated()), id: \.element.id) { index, section in
-                    SectionButton(section: section, store: store, isOpen: keyboardNavigation.openSectionID == section.id, isSelected: keyboardNavigation.selectedDockIndex == store.mainApplications.count + index) {
+                    SectionButton(section: section, store: store, isOpen: keyboardNavigation.openSectionID == section.id, isSelected: keyboardNavigation.selectedDockIndex == store.mainApplications.count + store.recentApplications.count + index) {
                         keyboardNavigation.toggleSubmenu(sectionID: section.id, itemCount: sortedBookmarks(in: section).count)
                     } onDrop: { url in store.addBookmark(url: url, to: section); savedSection = section.id; DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { savedSection = nil } }
                     .scaleEffect(savedSection == section.id ? 1.08 : 1).animation(.easeOut(duration: 0.25), value: savedSection)
