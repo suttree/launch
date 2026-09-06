@@ -95,7 +95,7 @@ final class Store: ObservableObject {
         recentApplications.removeAll { canonicalApplicationPath($0.url) == canonicalPath }
         recentApplications.insert(Bookmark(title: title, url: path, isApplication: true), at: 0)
         var seen = Set<String>()
-        recentApplications = Array(recentApplications.filter { seen.insert(canonicalApplicationPath($0.url)).inserted }.prefix(5))
+        recentApplications = Array(recentApplications.filter { seen.insert(canonicalApplicationPath($0.url)).inserted }.prefix(10))
     }
 
     private func canonicalApplicationPath(_ path: String) -> String {
@@ -247,7 +247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let visibleFrame = screen.visibleFrame
         let contentWidth = 98 + store.sections.reduce(CGFloat.zero) { $0 + max(76, CGFloat($1.name.count * 8 + 28)) }
         let width = min(max(contentWidth + 270, 300), visibleFrame.width - 40)
-        let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.maxY - 361, width: width, height: 361)
+        let height: CGFloat = 361
+        let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.midY - height / 2, width: width, height: height)
         panel = Panel(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         panel.level = .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
