@@ -510,7 +510,7 @@ struct ApplicationIcon: View {
             Image(nsImage: NSWorkspace.shared.icon(forFile: app.url))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 19, height: 19)
+                .frame(width: 21, height: 21)
                 .padding(.horizontal, 10)
                 .frame(height: 40)
                 .background(isSelected ? selectionHighlight : .clear)
