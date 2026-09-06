@@ -454,6 +454,7 @@ struct BarView: View {
             keyboardNavigation.clear()
             savedSection = nil
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private func sortedBookmarks(in section: Section) -> [Bookmark] {
