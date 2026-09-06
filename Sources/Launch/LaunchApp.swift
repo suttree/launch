@@ -234,12 +234,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var keyMonitor: Any?
-    private var globalKeyMonitor: Any?
     private var appearanceObserver: NSKeyValueObservation?
-    private var recentSwitcherActive = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        requestKeyboardAccess()
         updateApplicationIcon()
         appearanceObserver = NSApp.observe(\NSApplication.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
@@ -263,22 +260,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = hosting
         panel.orderFrontRegardless()
         registerHotKey()
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
-            self?.handleLocalEvent(event) ?? event
-        }
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
-            guard event.type == .keyDown,
-                  event.keyCode == kVK_Tab,
-                  event.modifierFlags.contains(.option) else { return }
-            Task { @MainActor in
-                self?.beginRecentSwitcher(offset: event.modifierFlags.contains(.shift) ? -1 : 1)
-            }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleKeyDown(event) == true ? nil : event
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        if let globalKeyMonitor { NSEvent.removeMonitor(globalKeyMonitor) }
         if let hotKey { UnregisterEventHotKey(hotKey) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         appearanceObserver?.invalidate()
@@ -289,11 +277,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let iconName = isDark ? "AppIcon-dark" : "AppIcon"
         guard let iconURL = Bundle.main.url(forResource: iconName, withExtension: "png"), let icon = NSImage(contentsOf: iconURL) else { return }
         NSApp.applicationIconImage = icon
-    }
-
-    private func requestKeyboardAccess() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     private func registerHotKey() {
@@ -313,50 +296,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: 1)
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
-    }
-
-    private func beginRecentSwitcher(offset: Int) {
-        guard !store.recentApplications.isEmpty else { return }
-        let wasActive = recentSwitcherActive
-        let currentPath = NSWorkspace.shared.frontmostApplication?.bundleURL.map { canonicalApplicationPath($0.path) }
-        let currentIndex: Int = (wasActive ? keyboardNavigation.selectedDockIndex.map { $0 - store.mainApplications.count } : currentPath.flatMap { path in
-            store.recentApplications.firstIndex { canonicalApplicationPath($0.url) == path }
-        }) ?? (offset > 0 ? -1 : 0)
-        let count = store.recentApplications.count
-        let targetIndex = (currentIndex + offset + count) % count
-        keyboardNavigation.selectDock(index: store.mainApplications.count + targetIndex, itemCount: dockItems.count)
-        recentSwitcherActive = true
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    private func finishRecentSwitcher() {
-        guard recentSwitcherActive,
-              let selected = keyboardNavigation.selectedDockIndex else { return }
-        let recentIndex = selected - store.mainApplications.count
-        guard store.recentApplications.indices.contains(recentIndex) else { return }
-        recentSwitcherActive = false
-        keyboardNavigation.clear()
-        panel.orderOut(nil)
-        open(store.recentApplications[recentIndex])
-    }
-
-    private func handleLocalEvent(_ event: NSEvent) -> NSEvent? {
-        if recentSwitcherActive {
-            if event.type == .flagsChanged && !event.modifierFlags.contains(.option) {
-                finishRecentSwitcher()
-                return nil
-            }
-            if event.type == .keyDown && event.keyCode == kVK_Tab && event.modifierFlags.contains(.option) {
-                beginRecentSwitcher(offset: event.modifierFlags.contains(.shift) ? -1 : 1)
-                return nil
-            }
-            if event.type == .keyUp && event.keyCode == kVK_Tab {
-                return nil
-            }
-        }
-        if event.type == .keyDown && handleKeyDown(event) { return nil }
-        return event
     }
 
     private func canonicalApplicationPath(_ path: String) -> String {
