@@ -284,7 +284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerHotKey() {
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let handler: EventHandlerUPP = { _, event, userData in
             guard let userData else { return noErr }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
@@ -292,14 +295,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             Task { @MainActor in
                 switch hotKeyID.id {
-                case 2: appDelegate.switchRecentApplication(by: 1)
-                case 3: appDelegate.switchRecentApplication(by: -1)
+                case 2: appDelegate.handleRecentShortcut(offset: 1, pressed: GetEventKind(event) == UInt32(kEventHotKeyPressed))
+                case 3: appDelegate.handleRecentShortcut(offset: -1, pressed: GetEventKind(event) == UInt32(kEventHotKeyPressed))
                 default: appDelegate.showForKeyboardNavigation()
                 }
             }
             return noErr
         }
-        InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
+        InstallEventHandler(GetApplicationEventTarget(), handler, eventTypes.count, &eventTypes, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: 1)
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
         let forwardID = EventHotKeyID(signature: OSType(0x474F544F), id: 2)
@@ -308,15 +311,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RegisterEventHotKey(UInt32(kVK_Tab), UInt32(optionKey | shiftKey), backwardID, GetApplicationEventTarget(), 0, &recentBackwardHotKey)
     }
 
-    private func switchRecentApplication(by offset: Int) {
+    private func handleRecentShortcut(offset: Int, pressed: Bool) {
         guard !store.recentApplications.isEmpty else { return }
+        if !pressed {
+            guard let selected = keyboardNavigation.selectedDockIndex else { return }
+            let recentIndex = selected - store.mainApplications.count
+            guard store.recentApplications.indices.contains(recentIndex) else { return }
+            keyboardNavigation.clear()
+            panel.orderOut(nil)
+            open(store.recentApplications[recentIndex])
+            return
+        }
         let currentPath = NSWorkspace.shared.frontmostApplication?.bundleURL.map { canonicalApplicationPath($0.path) }
-        let currentIndex = currentPath.flatMap { path in
+        let currentIndex: Int = (NSApp.isActive ? keyboardNavigation.selectedDockIndex.map { $0 - store.mainApplications.count } : currentPath.flatMap { path in
             store.recentApplications.firstIndex { canonicalApplicationPath($0.url) == path }
-        } ?? (offset > 0 ? -1 : 0)
+        }) ?? (offset > 0 ? -1 : 0)
         let count = store.recentApplications.count
         let targetIndex = (currentIndex + offset + count) % count
-        open(store.recentApplications[targetIndex])
+        keyboardNavigation.selectDock(index: store.mainApplications.count + targetIndex, itemCount: dockItems.count)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private func canonicalApplicationPath(_ path: String) -> String {

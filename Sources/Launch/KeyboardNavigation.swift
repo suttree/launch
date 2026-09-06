@@ -29,6 +29,13 @@ final class KeyboardNavigation: ObservableObject {
         selectedSubmenuIndex = nil
     }
 
+    func selectDock(index: Int, itemCount: Int) {
+        guard itemCount > 0, (0..<itemCount).contains(index) else { return }
+        selectedDockIndex = index
+        openSectionID = nil
+        selectedSubmenuIndex = nil
+    }
+
     func openSubmenu(sectionID: UUID, itemCount: Int) {
         openSectionID = sectionID
         selectedSubmenuIndex = itemCount > 0 ? 0 : nil
