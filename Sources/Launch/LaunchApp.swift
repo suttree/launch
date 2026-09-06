@@ -92,8 +92,6 @@ final class Store: ObservableObject {
               let path = application.bundleURL?.path,
               let title = application.localizedName else { return }
         let canonicalPath = canonicalApplicationPath(path)
-        let pinnedPaths = Set(mainApplications.map { canonicalApplicationPath($0.url) })
-        guard !pinnedPaths.contains(canonicalPath) else { return }
         recentApplications.removeAll { canonicalApplicationPath($0.url) == canonicalPath }
         recentApplications.insert(Bookmark(title: title, url: path, isApplication: true), at: 0)
         var seen = Set<String>()
