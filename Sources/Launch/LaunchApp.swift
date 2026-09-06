@@ -232,10 +232,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let keyboardNavigation = KeyboardNavigation()
     private var previousApplication: NSRunningApplication?
     private var hotKey: EventHotKeyRef?
-    private var recentForwardHotKey: EventHotKeyRef?
-    private var recentBackwardHotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var keyMonitor: Any?
+    private var globalKeyMonitor: Any?
     private var appearanceObserver: NSKeyValueObservation?
     private var recentSwitcherActive = false
 
@@ -266,13 +265,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             self?.handleLocalEvent(event) ?? event
         }
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard event.type == .keyDown,
+                  event.keyCode == kVK_Tab,
+                  event.modifierFlags.contains(.option) else { return }
+            Task { @MainActor in
+                self?.beginRecentSwitcher(offset: event.modifierFlags.contains(.shift) ? -1 : 1)
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        if let globalKeyMonitor { NSEvent.removeMonitor(globalKeyMonitor) }
         if let hotKey { UnregisterEventHotKey(hotKey) }
-        if let recentForwardHotKey { UnregisterEventHotKey(recentForwardHotKey) }
-        if let recentBackwardHotKey { UnregisterEventHotKey(recentBackwardHotKey) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         appearanceObserver?.invalidate()
     }
@@ -293,8 +299,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             Task { @MainActor in
                 switch hotKeyID.id {
-                case 2: appDelegate.beginRecentSwitcher(offset: 1)
-                case 3: appDelegate.beginRecentSwitcher(offset: -1)
                 default: appDelegate.showForKeyboardNavigation()
                 }
             }
@@ -303,10 +307,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: 1)
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
-        let forwardID = EventHotKeyID(signature: OSType(0x474F544F), id: 2)
-        RegisterEventHotKey(UInt32(kVK_Tab), UInt32(optionKey), forwardID, GetApplicationEventTarget(), 0, &recentForwardHotKey)
-        let backwardID = EventHotKeyID(signature: OSType(0x474F544F), id: 3)
-        RegisterEventHotKey(UInt32(kVK_Tab), UInt32(optionKey | shiftKey), backwardID, GetApplicationEventTarget(), 0, &recentBackwardHotKey)
     }
 
     private func beginRecentSwitcher(offset: Int) {
