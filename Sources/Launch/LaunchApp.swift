@@ -232,6 +232,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let keyboardNavigation = KeyboardNavigation()
     private var previousApplication: NSRunningApplication?
     private var hotKey: EventHotKeyRef?
+    private var recentForwardHotKey: EventHotKeyRef?
+    private var recentBackwardHotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var keyMonitor: Any?
     private var appearanceObserver: NSKeyValueObservation?
@@ -268,6 +270,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let hotKey { UnregisterEventHotKey(hotKey) }
+        if let recentForwardHotKey { UnregisterEventHotKey(recentForwardHotKey) }
+        if let recentBackwardHotKey { UnregisterEventHotKey(recentBackwardHotKey) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         appearanceObserver?.invalidate()
     }
@@ -281,15 +285,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func registerHotKey() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        let handler: EventHandlerUPP = { _, _, userData in
+        let handler: EventHandlerUPP = { _, event, userData in
             guard let userData else { return noErr }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
-            Task { @MainActor in appDelegate.showForKeyboardNavigation() }
+            var hotKeyID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            Task { @MainActor in
+                switch hotKeyID.id {
+                case 2: appDelegate.switchRecentApplication(by: 1)
+                case 3: appDelegate.switchRecentApplication(by: -1)
+                default: appDelegate.showForKeyboardNavigation()
+                }
+            }
             return noErr
         }
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: 1)
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
+        let forwardID = EventHotKeyID(signature: OSType(0x474F544F), id: 2)
+        RegisterEventHotKey(UInt32(kVK_Tab), UInt32(optionKey), forwardID, GetApplicationEventTarget(), 0, &recentForwardHotKey)
+        let backwardID = EventHotKeyID(signature: OSType(0x474F544F), id: 3)
+        RegisterEventHotKey(UInt32(kVK_Tab), UInt32(optionKey | shiftKey), backwardID, GetApplicationEventTarget(), 0, &recentBackwardHotKey)
+    }
+
+    private func switchRecentApplication(by offset: Int) {
+        guard !store.recentApplications.isEmpty else { return }
+        let currentPath = NSWorkspace.shared.frontmostApplication?.bundleURL.map { canonicalApplicationPath($0.path) }
+        let currentIndex = currentPath.flatMap { path in
+            store.recentApplications.firstIndex { canonicalApplicationPath($0.url) == path }
+        } ?? (offset > 0 ? -1 : 0)
+        let count = store.recentApplications.count
+        let targetIndex = (currentIndex + offset + count) % count
+        open(store.recentApplications[targetIndex])
+    }
+
+    private func canonicalApplicationPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     private func showForKeyboardNavigation() {
