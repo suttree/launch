@@ -410,12 +410,13 @@ struct BarView: View {
             Color.clear
             HStack(spacing: 0) {
                 ForEach(Array(store.mainApplications.enumerated()), id: \.element.id) { index, app in
-                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10).frame(height: 40).background(keyboardNavigation.selectedDockIndex == index ? selectionHighlight : .clear) }.buttonStyle(.plain).focusable(false).contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
+                    ApplicationIcon(app: app, isSelected: keyboardNavigation.selectedDockIndex == index) { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) }
+                        .contextMenu { Button("Remove", role: .destructive) { store.removeMainApplication(app) } }
                 }
                 if !store.recentApplications.isEmpty {
                     Rectangle().fill(.secondary.opacity(0.45)).frame(width: 1, height: 22).padding(.horizontal, 8)
                     ForEach(Array(store.recentApplications.enumerated()), id: \.element.id) { index, app in
-                        Button { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) } label: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url)).resizable().aspectRatio(contentMode: .fit).frame(width: 19, height: 19).padding(.horizontal, 10).frame(height: 40).background(keyboardNavigation.selectedDockIndex == store.mainApplications.count + index ? selectionHighlight : .clear) }.buttonStyle(.plain).focusable(false).help(app.title)
+                        ApplicationIcon(app: app, isSelected: keyboardNavigation.selectedDockIndex == store.mainApplications.count + index) { NSWorkspace.shared.open(URL(fileURLWithPath: app.url)) }
                     }
                 }
                 ForEach(Array(store.sections.enumerated()), id: \.element.id) { index, section in
@@ -494,6 +495,48 @@ struct BarView: View {
         panel.allowsMultipleSelection = false
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in if response == .OK, let url = panel.url { store.addMainApplication(at: url) } }
+    }
+}
+
+struct ApplicationIcon: View {
+    let app: Bookmark
+    let isSelected: Bool
+    let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: app.url))
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 19, height: 19)
+                .padding(.horizontal, 10)
+                .frame(height: 40)
+                .background(isSelected ? selectionHighlight : .clear)
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .onHover { isHovered = $0 }
+        .overlay(alignment: .bottom) {
+            if isHovered || isSelected {
+                Text(app.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .offset(y: 28)
+                    .allowsHitTesting(false)
+            }
+        }
+        .zIndex(isHovered || isSelected ? 1 : 0)
+    }
+
+    private var selectionHighlight: Color {
+        colorScheme == .dark ? Color.white.opacity(0.24) : Color.accentColor.opacity(0.22)
     }
 }
 
