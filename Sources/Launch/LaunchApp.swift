@@ -239,6 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recentSwitcherActive = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        requestKeyboardAccess()
         updateApplicationIcon()
         appearanceObserver = NSApp.observe(\NSApplication.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
@@ -288,6 +289,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let iconName = isDark ? "AppIcon-dark" : "AppIcon"
         guard let iconURL = Bundle.main.url(forResource: iconName, withExtension: "png"), let icon = NSImage(contentsOf: iconURL) else { return }
         NSApp.applicationIconImage = icon
+    }
+
+    private func requestKeyboardAccess() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     private func registerHotKey() {
