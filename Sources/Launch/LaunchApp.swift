@@ -248,7 +248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let contentWidth = 98 + store.sections.reduce(CGFloat.zero) { $0 + max(76, CGFloat($1.name.count * 8 + 28)) }
         let width = min(max(contentWidth + 270, 300), visibleFrame.width - 40)
         let height: CGFloat = 361
-        let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.midY - height / 2, width: width, height: height)
+        let barHeight: CGFloat = 40
+        let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.midY - barHeight / 2, width: width, height: height)
         panel = Panel(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         panel.level = .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
