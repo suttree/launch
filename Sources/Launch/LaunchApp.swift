@@ -237,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyHandler: EventHandlerRef?
     private var keyMonitor: Any?
     private var appearanceObserver: NSKeyValueObservation?
+    private var recentSwitcherActive = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         updateApplicationIcon()
@@ -262,8 +263,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = hosting
         panel.orderFrontRegardless()
         registerHotKey()
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyDown(event) == true ? nil : event
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
+            self?.handleLocalEvent(event) ?? event
         }
     }
 
@@ -284,10 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerHotKey() {
-        var eventTypes = [
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
-        ]
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let handler: EventHandlerUPP = { _, event, userData in
             guard let userData else { return noErr }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
@@ -295,14 +293,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             Task { @MainActor in
                 switch hotKeyID.id {
-                case 2: appDelegate.handleRecentShortcut(offset: 1, pressed: GetEventKind(event) == UInt32(kEventHotKeyPressed))
-                case 3: appDelegate.handleRecentShortcut(offset: -1, pressed: GetEventKind(event) == UInt32(kEventHotKeyPressed))
+                case 2: appDelegate.beginRecentSwitcher(offset: 1)
+                case 3: appDelegate.beginRecentSwitcher(offset: -1)
                 default: appDelegate.showForKeyboardNavigation()
                 }
             }
             return noErr
         }
-        InstallEventHandler(GetApplicationEventTarget(), handler, eventTypes.count, &eventTypes, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
+        InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: 1)
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
         let forwardID = EventHotKeyID(signature: OSType(0x474F544F), id: 2)
@@ -311,26 +309,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RegisterEventHotKey(UInt32(kVK_Tab), UInt32(optionKey | shiftKey), backwardID, GetApplicationEventTarget(), 0, &recentBackwardHotKey)
     }
 
-    private func handleRecentShortcut(offset: Int, pressed: Bool) {
+    private func beginRecentSwitcher(offset: Int) {
         guard !store.recentApplications.isEmpty else { return }
-        if !pressed {
-            guard let selected = keyboardNavigation.selectedDockIndex else { return }
-            let recentIndex = selected - store.mainApplications.count
-            guard store.recentApplications.indices.contains(recentIndex) else { return }
-            keyboardNavigation.clear()
-            panel.orderOut(nil)
-            open(store.recentApplications[recentIndex])
-            return
-        }
+        let wasActive = recentSwitcherActive
         let currentPath = NSWorkspace.shared.frontmostApplication?.bundleURL.map { canonicalApplicationPath($0.path) }
-        let currentIndex: Int = (NSApp.isActive ? keyboardNavigation.selectedDockIndex.map { $0 - store.mainApplications.count } : currentPath.flatMap { path in
+        let currentIndex: Int = (wasActive ? keyboardNavigation.selectedDockIndex.map { $0 - store.mainApplications.count } : currentPath.flatMap { path in
             store.recentApplications.firstIndex { canonicalApplicationPath($0.url) == path }
         }) ?? (offset > 0 ? -1 : 0)
         let count = store.recentApplications.count
         let targetIndex = (currentIndex + offset + count) % count
         keyboardNavigation.selectDock(index: store.mainApplications.count + targetIndex, itemCount: dockItems.count)
+        recentSwitcherActive = true
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func finishRecentSwitcher() {
+        guard recentSwitcherActive,
+              let selected = keyboardNavigation.selectedDockIndex else { return }
+        let recentIndex = selected - store.mainApplications.count
+        guard store.recentApplications.indices.contains(recentIndex) else { return }
+        recentSwitcherActive = false
+        keyboardNavigation.clear()
+        panel.orderOut(nil)
+        open(store.recentApplications[recentIndex])
+    }
+
+    private func handleLocalEvent(_ event: NSEvent) -> NSEvent? {
+        if recentSwitcherActive {
+            if event.type == .flagsChanged && !event.modifierFlags.contains(.option) {
+                finishRecentSwitcher()
+                return nil
+            }
+            if event.type == .keyDown && event.keyCode == kVK_Tab && event.modifierFlags.contains(.option) {
+                beginRecentSwitcher(offset: event.modifierFlags.contains(.shift) ? -1 : 1)
+                return nil
+            }
+            if event.type == .keyUp && event.keyCode == kVK_Tab {
+                return nil
+            }
+        }
+        if event.type == .keyDown && handleKeyDown(event) { return nil }
+        return event
     }
 
     private func canonicalApplicationPath(_ path: String) -> String {
