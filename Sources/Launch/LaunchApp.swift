@@ -321,6 +321,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         guard NSApp.isActive, keyboardNavigation.selectedDockIndex != nil else { return false }
 
+        if keyboardNavigation.openSectionID == nil,
+           event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty {
+            if event.keyCode == kVK_Delete {
+                searchRecentApplications(query: String(keyboardNavigation.searchQuery.dropLast()))
+                return true
+            }
+            if let characters = event.charactersIgnoringModifiers,
+               !characters.isEmpty,
+               characters.allSatisfy({ $0.isLetter || $0.isNumber || $0 == " " }) {
+                searchRecentApplications(query: keyboardNavigation.searchQuery + characters)
+                return true
+            }
+        }
+
         switch Int(event.keyCode) {
         case kVK_LeftArrow:
             guard keyboardNavigation.openSectionID == nil else { return false }
@@ -348,6 +362,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
         return true
+    }
+
+    private func searchRecentApplications(query: String) {
+        keyboardNavigation.updateSearchQuery(query)
+        guard !query.isEmpty else { return }
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let match = store.recentApplications.firstIndex {
+            $0.title.lowercased().hasPrefix(normalizedQuery)
+        } ?? store.recentApplications.firstIndex {
+            $0.title.lowercased().contains(normalizedQuery)
+        }
+        if let match {
+            keyboardNavigation.selectDock(index: store.mainApplications.count + match, itemCount: dockItems.count)
+        }
     }
 
     private var selectedItem: KeyboardNavigation.DockItem? {
@@ -442,6 +470,16 @@ struct BarView: View {
             .padding(.trailing, 16)
             .background(.regularMaterial)
             .frame(maxWidth: .infinity, alignment: .center)
+            if !keyboardNavigation.searchQuery.isEmpty {
+                Text(keyboardNavigation.searchQuery)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial)
+                    .clipShape(Capsule())
+                    .offset(y: 48)
+                    .allowsHitTesting(false)
+            }
             if addingSection {
                 HStack(spacing: 8) {
                     TextField("Section name", text: $newName) { committed in

@@ -10,11 +10,13 @@ final class KeyboardNavigation: ObservableObject {
     @Published private(set) var selectedDockIndex: Int?
     @Published private(set) var openSectionID: UUID?
     @Published private(set) var selectedSubmenuIndex: Int?
+    @Published private(set) var searchQuery = ""
 
     func begin(itemCount: Int) {
         selectedDockIndex = itemCount > 0 ? 0 : nil
         openSectionID = nil
         selectedSubmenuIndex = nil
+        searchQuery = ""
     }
 
     func moveDock(by offset: Int, itemCount: Int) {
@@ -27,6 +29,17 @@ final class KeyboardNavigation: ObservableObject {
         selectedDockIndex = (current + offset + itemCount) % itemCount
         openSectionID = nil
         selectedSubmenuIndex = nil
+    }
+
+    func selectDock(index: Int, itemCount: Int) {
+        guard itemCount > 0, (0..<itemCount).contains(index) else { return }
+        selectedDockIndex = index
+        openSectionID = nil
+        selectedSubmenuIndex = nil
+    }
+
+    func updateSearchQuery(_ query: String) {
+        searchQuery = query
     }
 
     func openSubmenu(sectionID: UUID, itemCount: Int) {
