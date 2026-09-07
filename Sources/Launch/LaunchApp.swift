@@ -470,16 +470,6 @@ struct BarView: View {
             .padding(.trailing, 16)
             .background(.regularMaterial)
             .frame(maxWidth: .infinity, alignment: .center)
-            if !keyboardNavigation.searchQuery.isEmpty {
-                Text(keyboardNavigation.searchQuery)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.regularMaterial)
-                    .clipShape(Capsule())
-                    .offset(y: 48)
-                    .allowsHitTesting(false)
-            }
             if addingSection {
                 HStack(spacing: 8) {
                     TextField("Section name", text: $newName) { committed in
