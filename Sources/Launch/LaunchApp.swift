@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Combine
 import SwiftUI
 
 private let gotoSurface = Color(red: 0.93, green: 0.72, blue: 0.30).opacity(0.95)
@@ -46,20 +47,60 @@ struct Bookmark: Codable, Identifiable, Equatable {
     }
 }
 
+enum RecentApplicationOrder {
+    static func reconcile(openApplications: [Bookmark], previousOrder: [Bookmark], frontmostPath: String?) -> [Bookmark] {
+        let openByPath = Dictionary(
+            openApplications.map { (canonicalPath($0.url), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let preferredPaths = [frontmostPath].compactMap { $0 }.map(canonicalPath)
+            + previousOrder.map { canonicalPath($0.url) }
+            + openApplications.map { canonicalPath($0.url) }
+        var seen = Set<String>()
+
+        return preferredPaths.compactMap { path in
+            guard seen.insert(path).inserted else { return nil }
+            return openByPath[path]
+        }
+    }
+
+    static func activating(_ application: Bookmark, in applications: [Bookmark]) -> [Bookmark] {
+        let path = canonicalPath(application.url)
+        return [application] + applications.filter { canonicalPath($0.url) != path }
+    }
+
+    static func removing(path: String, from applications: [Bookmark]) -> [Bookmark] {
+        let canonicalPath = canonicalPath(path)
+        return applications.filter { self.canonicalPath($0.url) != canonicalPath }
+    }
+
+    static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
+
 @MainActor
 final class Store: ObservableObject {
     @Published var sections: [Section] { didSet { save() } }
     @Published var mainApplications: [Bookmark] { didSet { saveMainApplications() } }
-    @Published private(set) var recentApplications: [Bookmark]
+    @Published private(set) var recentApplications: [Bookmark] { didSet { saveRecentApplications() } }
     let fileURL: URL
-    private var activationObserver: NSObjectProtocol?
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("GOTO", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         fileURL = support.appendingPathComponent("sections.json")
-        recentApplications = []
+        let workspace = NSWorkspace.shared
+        let openApplications = workspace.runningApplications.compactMap(Self.bookmark(for:))
+        let previousOrder = UserDefaults.standard.data(forKey: "GOTO.recentApplications")
+            .flatMap { try? JSONDecoder().decode([Bookmark].self, from: $0) } ?? []
+        recentApplications = RecentApplicationOrder.reconcile(
+            openApplications: openApplications,
+            previousOrder: previousOrder,
+            frontmostPath: workspace.frontmostApplication?.bundleURL?.path
+        )
         if let data = UserDefaults.standard.data(forKey: "GOTO.mainApplications"), let apps = try? JSONDecoder().decode([Bookmark].self, from: data), !apps.isEmpty {
             mainApplications = apps
         } else {
@@ -74,32 +115,53 @@ final class Store: ObservableObject {
         } else {
             sections = [Section(name: "READ"), Section(name: "WATCH")]
         }
-        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+        let notificationCenter = workspace.notificationCenter
+        workspaceObservers.append(notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
             guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             Task { @MainActor in
                 self?.recordRecentApplication(application)
             }
-        }
+        })
+        workspaceObservers.append(notificationCenter.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            Task { @MainActor in
+                self?.recordOpenApplication(application)
+            }
+        })
+        workspaceObservers.append(notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let path = application.bundleURL?.path else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                self.recentApplications = RecentApplicationOrder.removing(path: path, from: self.recentApplications)
+            }
+        })
     }
 
     deinit {
-        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+        workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
     }
 
     private func recordRecentApplication(_ application: NSRunningApplication) {
+        guard let bookmark = Self.bookmark(for: application) else { return }
+        recentApplications = RecentApplicationOrder.activating(bookmark, in: recentApplications)
+    }
+
+    private func recordOpenApplication(_ application: NSRunningApplication) {
+        guard let bookmark = Self.bookmark(for: application) else { return }
+        recentApplications = RecentApplicationOrder.reconcile(
+            openApplications: recentApplications + [bookmark],
+            previousOrder: recentApplications,
+            frontmostPath: nil
+        )
+    }
+
+    private static func bookmark(for application: NSRunningApplication) -> Bookmark? {
         guard application.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               application.activationPolicy == .regular,
               let path = application.bundleURL?.path,
-              let title = application.localizedName else { return }
-        let canonicalPath = canonicalApplicationPath(path)
-        recentApplications.removeAll { canonicalApplicationPath($0.url) == canonicalPath }
-        recentApplications.insert(Bookmark(title: title, url: path, isApplication: true), at: 0)
-        var seen = Set<String>()
-        recentApplications = Array(recentApplications.filter { seen.insert(canonicalApplicationPath($0.url)).inserted }.prefix(10))
-    }
-
-    private func canonicalApplicationPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+              let title = application.localizedName else { return nil }
+        return Bookmark(title: title, url: path, isApplication: true)
     }
 
     func addSection(_ name: String) {
@@ -207,6 +269,10 @@ final class Store: ObservableObject {
     private func saveMainApplications() {
         if let data = try? JSONEncoder().encode(mainApplications) { UserDefaults.standard.set(data, forKey: "GOTO.mainApplications") }
     }
+
+    private func saveRecentApplications() {
+        if let data = try? JSONEncoder().encode(recentApplications) { UserDefaults.standard.set(data, forKey: "GOTO.recentApplications") }
+    }
 }
 
 final class Panel: NSPanel {
@@ -215,8 +281,20 @@ final class Panel: NSPanel {
 }
 
 enum LauncherLayout {
+    static let applicationWidth: CGFloat = 41
+    static let recentsDividerWidth: CGFloat = 17
+    static let addMenuWidth: CGFloat = 48
+    static let trailingPadding: CGFloat = 16
     static let minimumSectionWidth: CGFloat = 76
     static let popoverWidth: CGFloat = 320
+
+    static func barContentWidth(applicationCount: Int, hasRecentApplications: Bool, sectionWidths: [CGFloat]) -> CGFloat {
+        CGFloat(applicationCount) * applicationWidth
+            + (hasRecentApplications ? recentsDividerWidth : 0)
+            + sectionWidths.reduce(0, +)
+            + addMenuWidth
+            + trailingPadding
+    }
 
     static func panelWidth(contentWidth: CGFloat, visibleWidth: CGFloat) -> CGFloat {
         min(max(contentWidth + popoverAllowance, 300), visibleWidth - 40)
@@ -261,6 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyHandler: EventHandlerRef?
     private var keyMonitor: Any?
     private var appearanceObserver: NSKeyValueObservation?
+    private var storeObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         updateApplicationIcon()
@@ -271,7 +350,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame
-        let contentWidth = 98 + store.sections.reduce(CGFloat.zero) { $0 + max(LauncherLayout.minimumSectionWidth, CGFloat($1.name.count * 8 + 28)) }
+        let sectionWidths = store.sections.map { max(LauncherLayout.minimumSectionWidth, CGFloat($0.name.count * 8 + 28)) }
+        let contentWidth = LauncherLayout.barContentWidth(
+            applicationCount: store.mainApplications.count + store.recentApplications.count,
+            hasRecentApplications: !store.recentApplications.isEmpty,
+            sectionWidths: sectionWidths
+        )
         let width = LauncherLayout.panelWidth(contentWidth: contentWidth, visibleWidth: visibleFrame.width)
         let height: CGFloat = 361
         let barHeight: CGFloat = 40
@@ -287,6 +371,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hosting = NSHostingView(rootView: BarView(store: store, keyboardNavigation: keyboardNavigation))
         panel.contentView = hosting
         panel.orderFrontRegardless()
+        storeObserver = store.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async {
+                self?.resizePanelForCurrentContent()
+            }
+        }
         registerHotKey()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyDown(event) == true ? nil : event
@@ -298,6 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeys.forEach { UnregisterEventHotKey($0) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         appearanceObserver?.invalidate()
+        storeObserver?.cancel()
     }
 
     private func updateApplicationIcon() {
@@ -305,6 +395,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let iconName = isDark ? "AppIcon-dark" : "AppIcon"
         guard let iconURL = Bundle.main.url(forResource: iconName, withExtension: "png"), let icon = NSImage(contentsOf: iconURL) else { return }
         NSApp.applicationIconImage = icon
+    }
+
+    private func resizePanelForCurrentContent() {
+        guard let panel else { return }
+        let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let visibleFrame = screen.visibleFrame
+        let sectionWidths = store.sections.map { max(LauncherLayout.minimumSectionWidth, CGFloat($0.name.count * 8 + 28)) }
+        let contentWidth = LauncherLayout.barContentWidth(
+            applicationCount: store.mainApplications.count + store.recentApplications.count,
+            hasRecentApplications: !store.recentApplications.isEmpty,
+            sectionWidths: sectionWidths
+        )
+        let width = LauncherLayout.panelWidth(contentWidth: contentWidth, visibleWidth: visibleFrame.width)
+        let frame = NSRect(x: visibleFrame.midX - width / 2, y: panel.frame.minY, width: width, height: panel.frame.height)
+        panel.setFrame(frame, display: true)
     }
 
     private func registerHotKey() {

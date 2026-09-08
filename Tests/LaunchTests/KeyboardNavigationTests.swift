@@ -4,6 +4,48 @@ import Carbon.HIToolbox
 
 @MainActor
 final class KeyboardNavigationTests: XCTestCase {
+    func testBarWidthCountsEveryPinnedAndOpenApplication() {
+        let width = LauncherLayout.barContentWidth(
+            applicationCount: 7,
+            hasRecentApplications: true,
+            sectionWidths: [76, 76]
+        )
+
+        XCTAssertEqual(width, 520)
+    }
+
+    func testRecentApplicationsIncludeEveryOpenAppInSavedOrder() {
+        let firefox = Bookmark(title: "Firefox", url: "/Applications/Firefox.app", isApplication: true)
+        let slack = Bookmark(title: "Slack", url: "/Applications/Slack.app", isApplication: true)
+        let notes = Bookmark(title: "Notes", url: "/System/Applications/Notes.app", isApplication: true)
+
+        let applications = RecentApplicationOrder.reconcile(
+            openApplications: [firefox, slack, notes],
+            previousOrder: [slack, firefox],
+            frontmostPath: notes.url
+        )
+
+        XCTAssertEqual(applications.map(\.title), ["Notes", "Slack", "Firefox"])
+    }
+
+    func testActivatingApplicationMovesItToFrontWithoutDuplication() {
+        let firefox = Bookmark(title: "Firefox", url: "/Applications/Firefox.app", isApplication: true)
+        let slack = Bookmark(title: "Slack", url: "/Applications/Slack.app", isApplication: true)
+
+        let applications = RecentApplicationOrder.activating(slack, in: [firefox, slack])
+
+        XCTAssertEqual(applications.map(\.title), ["Slack", "Firefox"])
+    }
+
+    func testTerminatedApplicationIsRemoved() {
+        let firefox = Bookmark(title: "Firefox", url: "/Applications/Firefox.app", isApplication: true)
+        let slack = Bookmark(title: "Slack", url: "/Applications/Slack.app", isApplication: true)
+
+        let applications = RecentApplicationOrder.removing(path: firefox.url, from: [firefox, slack])
+
+        XCTAssertEqual(applications.map(\.title), ["Slack"])
+    }
+
     func testGlobalShortcutsIncludeOptionSpaceAndControlP() {
         XCTAssertEqual(
             LauncherHotKeys.definitions,
