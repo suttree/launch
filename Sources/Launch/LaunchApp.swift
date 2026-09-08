@@ -318,6 +318,16 @@ enum LauncherHotKeys {
     ]
 }
 
+enum TypeaheadInput {
+    static func isDeletionKey(_ keyCode: UInt16) -> Bool {
+        keyCode == UInt16(kVK_Delete) || keyCode == UInt16(kVK_ForwardDelete)
+    }
+
+    static func deletingLastCharacter(from query: String) -> String {
+        String(query.dropLast())
+    }
+}
+
 @main
 struct LaunchApp: App {
     @StateObject private var store = Store()
@@ -460,8 +470,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if keyboardNavigation.openSectionID == nil,
            event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty {
-            if event.keyCode == kVK_Delete {
-                searchApplications(query: String(keyboardNavigation.searchQuery.dropLast()))
+            if TypeaheadInput.isDeletionKey(event.keyCode) {
+                searchApplications(query: TypeaheadInput.deletingLastCharacter(from: keyboardNavigation.searchQuery))
                 return true
             }
             if let characters = event.charactersIgnoringModifiers,
