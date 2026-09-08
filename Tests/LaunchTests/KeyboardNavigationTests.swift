@@ -4,6 +4,25 @@ import Carbon.HIToolbox
 
 @MainActor
 final class KeyboardNavigationTests: XCTestCase {
+    func testTypeaheadRecognizesBackspaceAndForwardDelete() {
+        XCTAssertTrue(TypeaheadInput.isDeletionKey(UInt16(kVK_Delete)))
+        XCTAssertTrue(TypeaheadInput.isDeletionKey(UInt16(kVK_ForwardDelete)))
+    }
+
+    func testTypeaheadCanCorrectMistypedQueryWithBackspace() {
+        var query = "friefox"
+        for _ in 0..<6 {
+            query = TypeaheadInput.deletingLastCharacter(from: query)
+        }
+        query += "irefox"
+
+        XCTAssertEqual(query, "firefox")
+        XCTAssertEqual(
+            KeyboardNavigation.matchingApplicationIndex(query: query, titles: ["Firefox", "Slack"]),
+            0
+        )
+    }
+
     func testBarWidthCountsEveryPinnedAndOpenApplication() {
         let width = LauncherLayout.barContentWidth(
             applicationCount: 7,
