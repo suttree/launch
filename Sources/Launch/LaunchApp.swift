@@ -337,13 +337,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if keyboardNavigation.openSectionID == nil,
            event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty {
             if event.keyCode == kVK_Delete {
-                searchRecentApplications(query: String(keyboardNavigation.searchQuery.dropLast()))
+                searchApplications(query: String(keyboardNavigation.searchQuery.dropLast()))
                 return true
             }
             if let characters = event.charactersIgnoringModifiers,
                !characters.isEmpty,
                characters.allSatisfy({ $0.isLetter || $0.isNumber || $0 == " " }) {
-                searchRecentApplications(query: keyboardNavigation.searchQuery + characters)
+                searchApplications(query: keyboardNavigation.searchQuery + characters)
                 return true
             }
         }
@@ -377,17 +377,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func searchRecentApplications(query: String) {
+    private func searchApplications(query: String) {
         keyboardNavigation.updateSearchQuery(query)
-        guard !query.isEmpty else { return }
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let match = store.recentApplications.firstIndex {
-            $0.title.lowercased().hasPrefix(normalizedQuery)
-        } ?? store.recentApplications.firstIndex {
-            $0.title.lowercased().contains(normalizedQuery)
-        }
+        let applications = store.mainApplications + store.recentApplications
+        let match = KeyboardNavigation.matchingApplicationIndex(query: query, titles: applications.map(\.title))
         if let match {
-            keyboardNavigation.selectDock(index: store.mainApplications.count + match, itemCount: dockItems.count)
+            keyboardNavigation.selectDock(index: match, itemCount: dockItems.count)
         }
     }
 

@@ -3,6 +3,33 @@ import XCTest
 
 @MainActor
 final class KeyboardNavigationTests: XCTestCase {
+    func testTypeaheadFindsPinnedApplication() {
+        let match = KeyboardNavigation.matchingApplicationIndex(
+            query: "fire",
+            titles: ["Firefox", "ChatGPT", "Slack"]
+        )
+
+        XCTAssertEqual(match, 0)
+    }
+
+    func testTypeaheadFindsRecentApplicationAfterPinnedApplications() {
+        let match = KeyboardNavigation.matchingApplicationIndex(
+            query: "sla",
+            titles: ["Firefox", "ChatGPT", "Slack"]
+        )
+
+        XCTAssertEqual(match, 2)
+    }
+
+    func testTypeaheadPrefersPrefixMatchAcrossAllApplications() {
+        let match = KeyboardNavigation.matchingApplicationIndex(
+            query: "sa",
+            titles: ["My Safari Profile", "Safari"]
+        )
+
+        XCTAssertEqual(match, 1)
+    }
+
     func testPanelLeavesEnoughRoomForPopoverAtEitherEdge() {
         let width = LauncherLayout.panelWidth(contentWidth: 400, visibleWidth: 1_000)
 
