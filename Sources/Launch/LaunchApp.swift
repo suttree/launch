@@ -214,6 +214,19 @@ final class Panel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+enum LauncherLayout {
+    static let minimumSectionWidth: CGFloat = 76
+    static let popoverWidth: CGFloat = 230
+
+    static func panelWidth(contentWidth: CGFloat, visibleWidth: CGFloat) -> CGFloat {
+        min(max(contentWidth + popoverAllowance, 300), visibleWidth - 40)
+    }
+
+    private static var popoverAllowance: CGFloat {
+        2 * (popoverWidth - minimumSectionWidth)
+    }
+}
+
 @main
 struct LaunchApp: App {
     @StateObject private var store = Store()
@@ -245,8 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame
-        let contentWidth = 98 + store.sections.reduce(CGFloat.zero) { $0 + max(76, CGFloat($1.name.count * 8 + 28)) }
-        let width = min(max(contentWidth + 270, 300), visibleFrame.width - 40)
+        let contentWidth = 98 + store.sections.reduce(CGFloat.zero) { $0 + max(LauncherLayout.minimumSectionWidth, CGFloat($1.name.count * 8 + 28)) }
+        let width = LauncherLayout.panelWidth(contentWidth: contentWidth, visibleWidth: visibleFrame.width)
         let height: CGFloat = 361
         let barHeight: CGFloat = 40
         let frame = NSRect(x: visibleFrame.midX - width / 2, y: visibleFrame.midY - barHeight / 2 - 325, width: width, height: height)
@@ -713,7 +726,7 @@ struct SectionPopover: View {
                 }
             }
         }
-        .frame(width: 230)
+        .frame(width: LauncherLayout.popoverWidth)
         .background(.regularMaterial)
         .clipShape(Rectangle())
         .shadow(radius: 0)

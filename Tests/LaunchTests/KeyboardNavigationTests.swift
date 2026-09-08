@@ -3,6 +3,18 @@ import XCTest
 
 @MainActor
 final class KeyboardNavigationTests: XCTestCase {
+    func testPanelLeavesEnoughRoomForPopoverAtEitherEdge() {
+        let width = LauncherLayout.panelWidth(contentWidth: 400, visibleWidth: 1_000)
+
+        XCTAssertEqual(width, 708)
+    }
+
+    func testPanelWidthStaysInsideVisibleScreen() {
+        let width = LauncherLayout.panelWidth(contentWidth: 900, visibleWidth: 1_000)
+
+        XCTAssertEqual(width, 960)
+    }
+
     func testBeginSelectsFirstDockItem() {
         let navigation = KeyboardNavigation()
 
