@@ -216,7 +216,7 @@ final class Panel: NSPanel {
 
 enum LauncherLayout {
     static let minimumSectionWidth: CGFloat = 76
-    static let popoverWidth: CGFloat = 230
+    static let popoverWidth: CGFloat = 320
 
     static func panelWidth(contentWidth: CGFloat, visibleWidth: CGFloat) -> CGFloat {
         min(max(contentWidth + popoverAllowance, 300), visibleWidth - 40)

@@ -6,7 +6,7 @@ final class KeyboardNavigationTests: XCTestCase {
     func testPanelLeavesEnoughRoomForPopoverAtEitherEdge() {
         let width = LauncherLayout.panelWidth(contentWidth: 400, visibleWidth: 1_000)
 
-        XCTAssertEqual(width, 708)
+        XCTAssertEqual(width, 888)
     }
 
     func testPanelWidthStaysInsideVisibleScreen() {
