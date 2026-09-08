@@ -1,8 +1,100 @@
 import XCTest
+import Carbon.HIToolbox
 @testable import Launch
 
 @MainActor
 final class KeyboardNavigationTests: XCTestCase {
+    func testBarWidthCountsEveryPinnedAndOpenApplication() {
+        let width = LauncherLayout.barContentWidth(
+            applicationCount: 7,
+            hasRecentApplications: true,
+            sectionWidths: [76, 76]
+        )
+
+        XCTAssertEqual(width, 520)
+    }
+
+    func testRecentApplicationsIncludeEveryOpenAppInSavedOrder() {
+        let firefox = Bookmark(title: "Firefox", url: "/Applications/Firefox.app", isApplication: true)
+        let slack = Bookmark(title: "Slack", url: "/Applications/Slack.app", isApplication: true)
+        let notes = Bookmark(title: "Notes", url: "/System/Applications/Notes.app", isApplication: true)
+
+        let applications = RecentApplicationOrder.reconcile(
+            openApplications: [firefox, slack, notes],
+            previousOrder: [slack, firefox],
+            frontmostPath: notes.url
+        )
+
+        XCTAssertEqual(applications.map(\.title), ["Notes", "Slack", "Firefox"])
+    }
+
+    func testActivatingApplicationMovesItToFrontWithoutDuplication() {
+        let firefox = Bookmark(title: "Firefox", url: "/Applications/Firefox.app", isApplication: true)
+        let slack = Bookmark(title: "Slack", url: "/Applications/Slack.app", isApplication: true)
+
+        let applications = RecentApplicationOrder.activating(slack, in: [firefox, slack])
+
+        XCTAssertEqual(applications.map(\.title), ["Slack", "Firefox"])
+    }
+
+    func testTerminatedApplicationIsRemoved() {
+        let firefox = Bookmark(title: "Firefox", url: "/Applications/Firefox.app", isApplication: true)
+        let slack = Bookmark(title: "Slack", url: "/Applications/Slack.app", isApplication: true)
+
+        let applications = RecentApplicationOrder.removing(path: firefox.url, from: [firefox, slack])
+
+        XCTAssertEqual(applications.map(\.title), ["Slack"])
+    }
+
+    func testGlobalShortcutsIncludeOptionSpaceAndControlP() {
+        XCTAssertEqual(
+            LauncherHotKeys.definitions,
+            [
+                GlobalShortcut(id: 1, keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)),
+                GlobalShortcut(id: 2, keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(controlKey))
+            ]
+        )
+    }
+
+    func testTypeaheadFindsPinnedApplication() {
+        let match = KeyboardNavigation.matchingApplicationIndex(
+            query: "fire",
+            titles: ["Firefox", "ChatGPT", "Slack"]
+        )
+
+        XCTAssertEqual(match, 0)
+    }
+
+    func testTypeaheadFindsRecentApplicationAfterPinnedApplications() {
+        let match = KeyboardNavigation.matchingApplicationIndex(
+            query: "sla",
+            titles: ["Firefox", "ChatGPT", "Slack"]
+        )
+
+        XCTAssertEqual(match, 2)
+    }
+
+    func testTypeaheadPrefersPrefixMatchAcrossAllApplications() {
+        let match = KeyboardNavigation.matchingApplicationIndex(
+            query: "sa",
+            titles: ["My Safari Profile", "Safari"]
+        )
+
+        XCTAssertEqual(match, 1)
+    }
+
+    func testPanelLeavesEnoughRoomForPopoverAtEitherEdge() {
+        let width = LauncherLayout.panelWidth(contentWidth: 400, visibleWidth: 1_000)
+
+        XCTAssertEqual(width, 888)
+    }
+
+    func testPanelWidthStaysInsideVisibleScreen() {
+        let width = LauncherLayout.panelWidth(contentWidth: 900, visibleWidth: 1_000)
+
+        XCTAssertEqual(width, 960)
+    }
+
     func testBeginSelectsFirstDockItem() {
         let navigation = KeyboardNavigation()
 

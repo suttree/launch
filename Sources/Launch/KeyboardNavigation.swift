@@ -12,6 +12,14 @@ final class KeyboardNavigation: ObservableObject {
     @Published private(set) var selectedSubmenuIndex: Int?
     @Published private(set) var searchQuery = ""
 
+    static func matchingApplicationIndex(query: String, titles: [String]) -> Int? {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedQuery.isEmpty else { return nil }
+
+        return titles.firstIndex { $0.lowercased().hasPrefix(normalizedQuery) }
+            ?? titles.firstIndex { $0.lowercased().contains(normalizedQuery) }
+    }
+
     func begin(itemCount: Int) {
         selectedDockIndex = itemCount > 0 ? 0 : nil
         openSectionID = nil
