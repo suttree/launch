@@ -227,6 +227,19 @@ enum LauncherLayout {
     }
 }
 
+struct GlobalShortcut: Equatable {
+    let id: UInt32
+    let keyCode: UInt32
+    let modifiers: UInt32
+}
+
+enum LauncherHotKeys {
+    static let definitions = [
+        GlobalShortcut(id: 1, keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)),
+        GlobalShortcut(id: 2, keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(controlKey))
+    ]
+}
+
 @main
 struct LaunchApp: App {
     @StateObject private var store = Store()
@@ -244,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = Store()
     private let keyboardNavigation = KeyboardNavigation()
     private var previousApplication: NSRunningApplication?
-    private var hotKey: EventHotKeyRef?
+    private var hotKeys: [EventHotKeyRef] = []
     private var hotKeyHandler: EventHandlerRef?
     private var keyMonitor: Any?
     private var appearanceObserver: NSKeyValueObservation?
@@ -282,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        if let hotKey { UnregisterEventHotKey(hotKey) }
+        hotKeys.forEach { UnregisterEventHotKey($0) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         appearanceObserver?.invalidate()
     }
@@ -309,8 +322,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return noErr
         }
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
-        let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: 1)
-        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKey)
+        for shortcut in LauncherHotKeys.definitions {
+            let hotKeyID = EventHotKeyID(signature: OSType(0x474F544F), id: shortcut.id)
+            var hotKey: EventHotKeyRef?
+            if RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKey) == noErr,
+               let hotKey {
+                hotKeys.append(hotKey)
+            }
+        }
     }
 
     private func canonicalApplicationPath(_ path: String) -> String {

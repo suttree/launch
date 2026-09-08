@@ -1,8 +1,19 @@
 import XCTest
+import Carbon.HIToolbox
 @testable import Launch
 
 @MainActor
 final class KeyboardNavigationTests: XCTestCase {
+    func testGlobalShortcutsIncludeOptionSpaceAndControlP() {
+        XCTAssertEqual(
+            LauncherHotKeys.definitions,
+            [
+                GlobalShortcut(id: 1, keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)),
+                GlobalShortcut(id: 2, keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(controlKey))
+            ]
+        )
+    }
+
     func testTypeaheadFindsPinnedApplication() {
         let match = KeyboardNavigation.matchingApplicationIndex(
             query: "fire",
